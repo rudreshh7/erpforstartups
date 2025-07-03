@@ -1,0 +1,378 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ========================================
+// USERS & AUTHENTICATION
+// ========================================
+
+model User {
+  id           Int         @id @default(autoincrement())
+  clerkId      String      @unique
+  email        String      @unique
+  name         String?
+  role         UserRole    @default(USER)
+  departmentId Int?
+  department   Department? @relation(fields: [departmentId], references: [id])
+  salary       Decimal?    @db.Decimal(10, 2)
+  hireDate     DateTime?
+  isActive     Boolean     @default(true)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  // Relations
+  posts            Post[]
+  assignedTasks    TaskAssignee[]
+  createdTasks     Task[]            @relation("TaskCreator")
+  leaveRequests    LeaveRequest[]
+  payrollEntries   Payroll[]
+  createdProjects  Project[]         @relation("ProjectCreator")
+  assignedProjects ProjectMember[]
+  createdInvoices  Invoice[]
+  expenseEntries   Transaction[]
+  leadActivities   ContactActivity[]
+}
+
+enum UserRole {
+  ADMIN
+  USER
+}
+
+// ========================================
+// DEPARTMENTS & ORGANIZATION
+// ========================================
+
+model Department {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String?
+  managerId   Int?
+  createdAt   DateTime @default(now())
+
+  // Relations
+  employees User[]
+}
+
+// ========================================
+// PROJECTS & TASKS
+// ========================================
+
+model Project {
+  id          Int           @id @default(autoincrement())
+  name        String
+  description String?
+  status      ProjectStatus @default(PLANNING)
+  budget      Decimal?      @db.Decimal(10, 2)
+  startDate   DateTime?
+  endDate     DateTime?
+  createdById Int
+  createdBy   User          @relation("ProjectCreator", fields: [createdById], references: [id])
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  // Relations
+  tasks   Task[]
+  members ProjectMember[]
+}
+
+enum ProjectStatus {
+  PLANNING
+  IN_PROGRESS
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+}
+
+model ProjectMember {
+  id        Int      @id @default(autoincrement())
+  projectId Int
+  userId    Int
+  role      String? // "Lead", "Developer", "Designer", etc.
+  joinedAt  DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@unique([projectId, userId])
+}
+
+model Task {
+  id          Int          @id @default(autoincrement())
+  title       String
+  description String?
+  status      TaskStatus   @default(BACKLOG)
+  priority    TaskPriority @default(MEDIUM)
+  projectId   Int?
+  createdById Int
+  dueDate     DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  // Relations
+  project   Project?       @relation(fields: [projectId], references: [id])
+  createdBy User           @relation("TaskCreator", fields: [createdById], references: [id])
+  assignees TaskAssignee[]
+}
+
+enum TaskStatus {
+  BACKLOG
+  IN_PROGRESS
+  REVIEW
+  DONE
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model TaskAssignee {
+  id         Int      @id @default(autoincrement())
+  taskId     Int
+  userId     Int
+  assignedAt DateTime @default(now())
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([taskId, userId])
+}
+
+// ========================================
+// HR & LEAVE MANAGEMENT
+// ========================================
+
+model LeaveRequest {
+  id        Int         @id @default(autoincrement())
+  userId    Int
+  type      LeaveType
+  startDate DateTime
+  endDate   DateTime
+  reason    String?
+  status    LeaveStatus @default(PENDING)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+enum LeaveType {
+  ANNUAL
+  SICK
+  MATERNITY
+  PATERNITY
+  PERSONAL
+  EMERGENCY
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model Payroll {
+  id         Int       @id @default(autoincrement())
+  userId     Int
+  month      Int // 1-12
+  year       Int
+  baseSalary Decimal   @db.Decimal(10, 2)
+  bonus      Decimal?  @db.Decimal(10, 2)
+  deductions Decimal?  @db.Decimal(10, 2)
+  netSalary  Decimal   @db.Decimal(10, 2)
+  paidAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, month, year])
+}
+
+// ========================================
+// FINANCE & INVOICING
+// ========================================
+
+model Invoice {
+  id            Int           @id @default(autoincrement())
+  invoiceNumber String        @unique
+  clientName    String
+  clientEmail   String?
+  amount        Decimal       @db.Decimal(10, 2)
+  tax           Decimal?      @db.Decimal(10, 2)
+  totalAmount   Decimal       @db.Decimal(10, 2)
+  status        InvoiceStatus @default(DRAFT)
+  issueDate     DateTime      @default(now())
+  dueDate       DateTime
+  paidAt        DateTime?
+  description   String?
+  createdById   Int
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  createdBy User @relation(fields: [createdById], references: [id])
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+model Transaction {
+  id          Int             @id @default(autoincrement())
+  type        TransactionType
+  amount      Decimal         @db.Decimal(10, 2)
+  description String
+  category    String?
+  date        DateTime        @default(now())
+  createdById Int
+  createdAt   DateTime        @default(now())
+
+  createdBy User @relation(fields: [createdById], references: [id])
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+}
+
+// ========================================
+// CRM & LEADS
+// ========================================
+
+model Lead {
+  id        Int        @id @default(autoincrement())
+  name      String
+  email     String?
+  phone     String?
+  company   String?
+  status    LeadStatus @default(NEW)
+  source    String? // "Website", "Referral", "LinkedIn", etc.
+  value     Decimal?   @db.Decimal(10, 2)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  // Relations
+  activities ContactActivity[]
+  notes      LeadNote[]
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  PROPOSAL
+  NEGOTIATION
+  WON
+  LOST
+}
+
+model LeadNote {
+  id        Int      @id @default(autoincrement())
+  leadId    Int
+  content   String
+  createdAt DateTime @default(now())
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+}
+
+model ContactActivity {
+  id          Int          @id @default(autoincrement())
+  leadId      Int
+  userId      Int
+  type        ActivityType
+  description String?
+  scheduledAt DateTime?
+  completedAt DateTime?
+  createdAt   DateTime     @default(now())
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+}
+
+enum ActivityType {
+  CALL
+  EMAIL
+  MEETING
+  DEMO
+  FOLLOW_UP
+}
+
+// ========================================
+// INVENTORY (OPTIONAL)
+// ========================================
+
+model Item {
+  id           Int      @id @default(autoincrement())
+  name         String
+  sku          String   @unique
+  description  String?
+  category     String?
+  price        Decimal? @db.Decimal(10, 2)
+  currentStock Int      @default(0)
+  minStock     Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  movements InventoryMovement[]
+}
+
+model InventoryMovement {
+  id       Int          @id @default(autoincrement())
+  itemId   Int
+  type     MovementType
+  quantity Int
+  reason   String?
+  date     DateTime     @default(now())
+
+  item Item @relation(fields: [itemId], references: [id])
+}
+
+enum MovementType {
+  IN
+  OUT
+  ADJUSTMENT
+}
+
+model Vendor {
+  id            Int      @id @default(autoincrement())
+  name          String
+  email         String?
+  phone         String?
+  address       String?
+  contactPerson String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// ========================================
+// LEGACY (KEEP FOR NOW)
+// ========================================
+
+model Post {
+  id        Int      @id @default(autoincrement())
+  title     String
+  content   String?
+  imageUrl  String?
+  published Boolean  @default(false)
+  authorId  Int
+  author    User     @relation(fields: [authorId], references: [id])
+  createdAt DateTime @default(now())
+}
